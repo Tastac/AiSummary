@@ -15,17 +15,15 @@ from faster_whisper import WhisperModel
 from tkinter import *
 from tkinter import ttk
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # set to "" to disable GPU, or "0", "1", etc. to specify a GPU device
-RATE = 16000
-CHANNELS = 1
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+CHANNELS = 2
 FORMAT = pyaudio.paInt16
-#SECONDS = 5
-MODEL_SIZE = "large-v3"  # use "tiny" if too slow, "small" if your PC handles it
-
-CHUNK_SECONDS = 2.0
-OVERLAP_SECONDS = 0.5
 TARGET_RATE = 16000
 FRAMES_PER_BUFFER = 1024
+
+MODEL_SIZE = "medium"
+CHUNK_SECONDS = 1.5
+OVERLAP_SECONDS = 0.2
 
 audio = pyaudio.PyAudio()
 
@@ -92,7 +90,10 @@ class AudioRecorder:
             stream.close()
             audio.terminate()
 
-    def transcribe_loop(audio_queue, stop_event):
+    def is_similar(a, b):
+        return a in b or b in a
+
+    def transcribe_loop( audio_queue, stop_event):
         model = WhisperModel(
             MODEL_SIZE,
             device=("cuda"),
@@ -122,37 +123,35 @@ class AudioRecorder:
                 audio_chunk,
                 language="en",
                 beam_size=1,
+                temperature=0.0,
                 vad_filter=True,
                 condition_on_previous_text=False,
             )
 
             text = " ".join(segment.text.strip() for segment in segments).strip()
 
-            if text and text != last_text:
-                print(text)
-                last_text = text
+            if text:
+                if not last_text or not AudioRecorder.is_similar(text, last_text):
+                    print(text)
+                    last_text = text
 
             buffer = buffer[-overlap_samples:]
-        #segments, _ = model.transcribe("jschlatt.mp3", word_timestamps=True)
 
+class GUI:
+    def __init__(self):
+        self.root = Tk()
+        self.root.title("Live Transcription")
+        self.text = Text(self.root, wrap=WORD)
+        self.text.pack(expand=True, fill=BOTH)
 
-
-        #print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
-
-        #for segment in segments:
-        #    for word in segment.words:
-        #        print(word.word)
-                #print("[%.2fs -> %.2fs] %s" % (word.start, word.end, word.word))
+    def update_text(self, new_text):
+        self.text.delete(1.0, END)
+        self.text.insert(END, new_text)
 
 if __name__ == "__main__":
+    gui = GUI()
     audio_queue = queue.Queue()
     stop_event = threading.Event()
-
-    #capture_thread = threading.Thread(target=AudioRecorder.capture_audio, args=(audio_queue, stop_event), daemon=True)
-    #transcribe_thread = threading.Thread(target=AudioRecorder.transcribe_loop, args=(audio_queue, stop_event), daemon=True)
-
-    #AudioRecorder().capture_audio(audio_queue)
-    #print("Starting transcription...")
 
     capture_thread = threading.Thread(
         target=AudioRecorder.capture_audio,
@@ -171,9 +170,8 @@ if __name__ == "__main__":
 
     try:
         while True:
-            time.sleep(0.1)
+            time.sleep(0.2)
 
     except KeyboardInterrupt:
         stop_event.set()
         print("\nStopped.")
-
